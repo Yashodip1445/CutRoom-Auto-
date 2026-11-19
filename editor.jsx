@@ -4,6 +4,7 @@ import {createRoot} from 'react-dom/client';
 import './style.css';
 function App(){
  const [items,list]=useState([]),[p,set]=useState(null),[url,link]=useState(''),[busy,working]=useState(false),[msg,status]=useState('');
+ const [targetSeconds,setTargetSeconds]=useState(30);
  const [automatic,autoMode]=useState(true),[time,clock]=useState(0),[clip,clipUrl]=useState('');
  useEffect(()=>()=>{if(clip)URL.revokeObjectURL(clip);},[clip]);
  const video=useRef(),upload=useRef(),preview=useRef(false);
@@ -18,7 +19,7 @@ function App(){
  });}
  async function generate(source){
   status('Finding a highlight and transcribing speech…');
-  const plan=await (await request('/api/projects/'+source._id+'/auto',json({font:source.font,frame:source.frame,layout:source.layout,captionStyle:source.captionStyle}))).json();
+  const plan=await (await request('/api/projects/'+source._id+'/auto',json({targetSeconds,font:source.font,frame:source.frame,layout:source.layout,captionStyle:source.captionStyle}))).json();
   set(plan);await refresh();status('Rendering vertical MP4…');
   const output=await request('/api/projects/'+plan._id+'/export',json(plan));
   clipUrl(URL.createObjectURL(await output.blob()));status(plan.reason);
@@ -30,7 +31,10 @@ function App(){
   const href=URL.createObjectURL(await r.blob()),a=document.createElement('a');a.href=href;a.download='cutroom-short.mp4';a.click();setTimeout(()=>URL.revokeObjectURL(href),60000);status('MP4 exported.');
  });}
  return <><header><b>◩ &nbsp; Cutroom</b><span>Shorts studio</span></header><main><section><span className="eyebrow">VIDEO EDITOR</span><h1>Make the cut.</h1><p>Turn a moment from your video into a vertical short.</p>
- <fieldset disabled={busy}><h2>Source video</h2><label><input style={{width:"auto",display:"inline"}} type="checkbox" checked={automatic} onChange={e=>autoMode(e.target.checked)}/> Auto Short on import</label><label>YouTube link<input type="url" value={url} onChange={e=>link(e.target.value)} placeholder="Paste your video link"/></label><div className="row"><button disabled={!url} onClick={()=>load()}>Import link</button><button className="ghost" onClick={()=>upload.current.click()}>Upload video</button></div><input hidden ref={upload} type="file" accept="video/*" onChange={e=>{if(e.target.files[0])load(e.target.files[0]);e.target.value='';}}/>
+ <fieldset disabled={busy}><h2>Source video</h2><label><input style={{width:"auto",display:"inline"}} type="checkbox" checked={automatic} onChange={e=>autoMode(e.target.checked)}/> Auto Short on import</label>
+ <label>Auto Short length<select value={targetSeconds} onChange={event=>setTargetSeconds(Number(event.target.value))}>
+ <option value={30}>30 seconds</option><option value={60}>1 minute</option><option value={120}>2 minutes</option><option value={180}>3 minutes</option>
+ </select></label><label>YouTube link<input type="url" value={url} onChange={e=>link(e.target.value)} placeholder="Paste your video link"/></label><div className="row"><button disabled={!url} onClick={()=>load()}>Import link</button><button className="ghost" onClick={()=>upload.current.click()}>Upload video</button></div><input hidden ref={upload} type="file" accept="video/*" onChange={e=>{if(e.target.files[0])load(e.target.files[0]);e.target.value='';}}/>
  {items.length>0&&<label>Open a saved project<select value={p?._id||''} onChange={e=>{clipUrl('');set(items.find(x=>x._id===e.target.value));}}><option disabled value="">Select video</option>{items.map(x=><option key={x._id} value={x._id}>{x.title}</option>)}</select></label>}
  {p&&<><h2>Clip settings</h2><button className="ghost" onClick={()=>run(()=>generate(p))}>Generate Auto Short</button><div className="row">{['start','end'].map(k=><label key={k}>{k==='start'?'Start':'End'} (seconds)<input type="number" step="any" min="0" max={p.duration} value={p[k]} onChange={e=>update(k,Number(e.target.value))}/><button className="ghost" onClick={()=>update(k,video.current.currentTime)}>Mark here</button></label>)}</div><label>9:16 layout
  <select value={p.layout || 'fill'} onChange={event=>update('layout', event.target.value)}>

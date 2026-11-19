@@ -3,35 +3,45 @@ import {promisify} from 'node:util';
 const exec = promisify(execFile);
 let model;
 
-export function selectHighlight(cues, duration) {
-  let best = {start: 0, end: Math.min(30, duration), cues: [], reason: 'Opening clip selected.'};
+export function selectHighlight(cues, duration, targetSeconds = 30) {
+  const length = Math.min(targetSeconds, duration);
+  let best = {start:0, end:length, cues:[], reason:'Opening clip selected.'};
   let bestScore = -Infinity;
-  for (let i = 0; i < cues.length; i++) {
-    const start = cues[i].start;
-    let spoken = 0;
-    let words = 0;
-    for (let j = i; j < cues.length; j++) {
-      const {end, text} = cues[j];
-      const length = end - start;
-      if (length > 45) break;
-      spoken += end - cues[j].start;
-      words += text.split(/\s+/u).length;
-      let score = Math.min(spoken / length, 1) + Math.min(words / 70, 1) - Math.abs(length - 30) / 18;
-      if (i === 0 || start - cues[i-1].end >= 0.45) score += 0.35;
-      if (/[.!?।]$/u.test(text)) score += 0.35;
-      if (score > bestScore) {
-        bestScore = score;
-        best = {start, end, cues: cues.slice(i, j+1), reason: 'Selected using speech density, pauses and sentence endings.'};
-      }
+  const sentenceEnd = /[.!?।]["”’']?$/u;
+  const starts = new Set([0]);
+  for (const cue of cues) {
+    starts.add(Math.max(0, Math.min(duration-length, cue.start)));
+    starts.add(Math.max(0, Math.min(duration-length, cue.end-length)));
+  }
+  let firstIndex = 0;
+  for (const start of [...starts].sort((a,b)=>a-b)) {
+    const end = Math.min(duration, start+length);
+    while(firstIndex<cues.length && cues[firstIndex].end<=start) firstIndex++;
+    let spoken=0;
+    let lastIndex=firstIndex;
+    const words=new Set();
+    while(lastIndex<cues.length && cues[lastIndex].start<end) {
+      const cue=cues[lastIndex++];
+      spoken+=Math.min(end,cue.end)-Math.max(start,cue.start);
+      for(const word of cue.text.toLowerCase().split(/\s+/u)) words.add(word);
+    }
+    if(lastIndex===firstIndex) continue;
+    const first=cues[firstIndex], last=cues[lastIndex-1], prev=cues[firstIndex-1];
+    const cleanStart=first.start>=start && (!prev || first.start-prev.end>=0.45 || sentenceEnd.test(prev.text));
+    const cleanEnd=last.end<=end && sentenceEnd.test(last.text);
+    const score=spoken/length + Math.min(words.size/length,1)*0.5 + Number(cleanStart)*0.45 + Number(cleanEnd)*0.45;
+    if(score>bestScore) {
+      bestScore=score;
+      best={start,end,cues:cues.slice(firstIndex,lastIndex),reason:'Selected using speech coverage, vocabulary and sentence boundaries.'};
     }
   }
   return best;
 }
 
-export async function analyze(file, duration) {
+export async function analyze(file, duration, targetSeconds = 30) {
   const {stdout} = await exec('ffprobe', ['-v','error','-select_streams','a:0','-show_entries','stream=index','-of','csv=p=0',file]);
   const cues = [];
-  if (!stdout.trim()) return selectHighlight(cues, duration);
+  if (!stdout.trim()) return selectHighlight(cues, duration, targetSeconds);
   for (let offset = 0; offset < duration; offset += 60) {
     const {stdout: pcm} = await exec('ffmpeg', ['-v','error','-ss',String(offset),'-i',file,'-t','60','-vn','-ac','1','-ar','16000','-f','f32le','pipe:1'], {encoding:'buffer',maxBuffer:5*1024*1024});
     if (!pcm.length) break;
@@ -49,5 +59,5 @@ export async function analyze(file, duration) {
       if (text.trim() && end > start) cues.push({start,end,text:text.trim()});
     }
   }
-  return selectHighlight(cues, duration);
+  return selectHighlight(cues, duration, targetSeconds);
 }

@@ -46,7 +46,7 @@ app.post('/api/youtube',async(req,res)=>{
 });
 function edits(body,p){
   const {start,end,caption,font,frame}=body;
-  if(![start,end,frame].every(Number.isFinite)||start<0||end>p.duration||end<=start||end-start>180||frame<0||frame>100||!Object.hasOwn(fonts,font)||typeof caption!=='string'||caption.length>80)throw Error('Choose a clip up to 180 seconds and a caption up to 80 characters.');
+  if(![start,end,frame].every(Number.isFinite)||start<0||end>p.duration||end<=start||end-start>180.000001||frame<0||frame>100||!Object.hasOwn(fonts,font)||typeof caption!=='string'||caption.length>80)throw Error('Choose a clip up to 180 seconds and a caption up to 80 characters.');
   const layout=body.layout ?? p.layout ?? 'fill';
   if(!['fit','fill'].includes(layout)) throw Error('Choose a supported layout.');
   const captionStyle=body.captionStyle ?? p.captionStyle ?? 'Classic';
@@ -58,7 +58,9 @@ app.post('/api/projects/:id/:action',async(req,res)=>{
   if(!p)return res.sendStatus(404);
   if(req.params.action==='auto'){
     try{
-      const plan=await analyze(path.join(media,path.basename(p.source)),p.duration);
+      const targetSeconds=req.body.targetSeconds ?? 30;
+      if(![30,60,120,180].includes(targetSeconds)) return res.status(400).send('Choose a supported clip length.');
+      const plan=await analyze(path.join(media,path.basename(p.source)),p.duration,targetSeconds);
       const appearance=edits({...p,...req.body},p);
       const fields={...appearance,...plan,caption:''};
       await projects.updateOne({_id:p._id},{$set:fields});
