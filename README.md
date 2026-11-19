@@ -1,6 +1,6 @@
 # Cutroom — Windows setup without Docker
 1. Install Node.js 22, MongoDB Community Server (as a running Windows service), and FFmpeg including ffprobe and the subtitles filter. Put the FFmpeg bin folder on PATH. For YouTube imports also put the standalone yt-dlp.exe on PATH. Uploads work without yt-dlp.
-2. Extract this ZIP and open the cutroom folder in VS Code. Open a new terminal. Check that node -v, ffmpeg -version and ffprobe -version work.
+2. Open the repository folder containing package.json in VS Code. Open a new terminal. Check that node -v, ffmpeg -version and ffprobe -version work.
 3. Run each command in order:
 ```sh
 npm install

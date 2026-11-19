@@ -1,0 +1,15 @@
+services:
+  studio:
+    build: .
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      MONGO_URL: mongodb://db:27017
+    depends_on: [db]
+    volumes: [media:/app/media, models:/root/.cache/huggingface]
+  db:
+    image: mongo:7
+    volumes: [projects:/data/db]
+volumes:
+  media:
+  projects:
+  models:
