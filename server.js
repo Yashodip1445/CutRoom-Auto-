@@ -1,3 +1,4 @@
+import {captionStyles} from './caption-styles.js';
 import {analyze} from './auto-short.js';
 import {subtitles} from './subtitles.js';
 import express from 'express';
@@ -22,7 +23,7 @@ async function add(file,title){
     const {stdout}=await exec('ffprobe',['-v','error','-show_streams','-show_format','-of','json',file]);
     const info=JSON.parse(stdout), duration=Number(info.format.duration);
     if(!info.streams.some(s=>s.codec_type==='video') || !Number.isFinite(duration) || duration<=0) throw Error('Choose a playable video.');
-    const project={_id:randomUUID(),title,source:'/media/'+path.basename(file),duration,start:0,end:Math.min(30,duration),caption:'',font:'Sans',frame:50};
+    const project={_id:randomUUID(),title,source:'/media/'+path.basename(file),duration,start:0,end:Math.min(30,duration),caption:'',font:'Sans',frame:50,layout:'fit',captionStyle:'Arcade'};
     await projects.insertOne(project);
     return project;
   } catch(e){await rm(file,{force:true});throw e;}
@@ -46,7 +47,11 @@ app.post('/api/youtube',async(req,res)=>{
 function edits(body,p){
   const {start,end,caption,font,frame}=body;
   if(![start,end,frame].every(Number.isFinite)||start<0||end>p.duration||end<=start||end-start>180||frame<0||frame>100||!Object.hasOwn(fonts,font)||typeof caption!=='string'||caption.length>80)throw Error('Choose a clip up to 180 seconds and a caption up to 80 characters.');
-  return {start,end,caption,font,frame};
+  const layout=body.layout ?? p.layout ?? 'fill';
+  if(!['fit','fill'].includes(layout)) throw Error('Choose a supported layout.');
+  const captionStyle=body.captionStyle ?? p.captionStyle ?? 'Classic';
+  if(!Object.hasOwn(captionStyles,captionStyle)) throw Error('Choose a supported caption style.');
+  return {start,end,caption,font,frame,layout,captionStyle};
 }
 app.post('/api/projects/:id/:action',async(req,res)=>{
   const p=await projects.findOne({_id:req.params.id});
@@ -54,7 +59,8 @@ app.post('/api/projects/:id/:action',async(req,res)=>{
   if(req.params.action==='auto'){
     try{
       const plan=await analyze(path.join(media,path.basename(p.source)),p.duration);
-      const fields={...plan,caption:''};
+      const appearance=edits({...p,...req.body},p);
+      const fields={...appearance,...plan,caption:''};
       await projects.updateOne({_id:p._id},{$set:fields});
       return res.json({...p,...fields});
     }catch(err){console.error(err.message);return res.status(503).send('Speech analysis failed. Check model download access and retry, or use the manual editor.');}
@@ -64,13 +70,15 @@ app.post('/api/projects/:id/:action',async(req,res)=>{
   if(req.params.action!=='export')return res.sendStatus(404);
   const key=randomUUID(), caption=path.join(media,key+'.txt'), out=path.join(media,key+'.mp4');
   try{
-    let filter='scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280:(iw-ow)*'+(e.frame/100)+':(ih-oh)/2,setsar=1';
+    let filter=e.layout==='fit'
+      ? 'scale=720:1280:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=720:1280:(ow-iw)/2:(oh-ih)/2:black,setsar=1'
+      : 'scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280:(iw-ow)*'+(e.frame/100)+':(ih-oh)/2,setsar=1';
     const cues=e.caption?[{start:e.start,end:e.end,text:e.caption}]:(p.cues||[]);
     const srt=subtitles(cues,e.start,e.end);
     if(srt){
       await writeFile(caption+'.srt',srt);
       const family={Sans:'Arial',Serif:'Times New Roman',Mono:'Courier New'}[e.font];
-      filter+=",subtitles="+path.basename(caption)+".srt:force_style='FontName="+family+",FontSize=16,MarginV=48,Outline=2'";
+      filter+=",subtitles="+path.basename(caption)+".srt:force_style='FontName="+family+",FontSize=16,MarginV=48,"+captionStyles[e.captionStyle].ass+"'";
     }
     await exec('ffmpeg',['-v','error','-ss',String(e.start),'-i',path.join(media,path.basename(p.source)),'-t',String(e.end-e.start),'-vf',filter,'-map','0:v:0','-map','0:a:0?','-c:v','libx264','-preset','veryfast','-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart',out],{cwd:media,timeout:600000});
     res.download(out,'cutroom-short.mp4',()=>rm(out,{force:true}).catch(()=>{}));
